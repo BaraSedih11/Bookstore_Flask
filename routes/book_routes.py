@@ -1,5 +1,5 @@
 from flask import Blueprint, request, jsonify
-from models import Book
+from models.book import Book
 from . import db
 
 
@@ -14,7 +14,7 @@ def add_book():
     price = data.get('price')
     quantity = data.get('quantity')
     category = data.get('category')
-    manager_id = data.get('manager_id')  # Get manager_id from request data
+    manager_id = data.get('manager_id')  # Get m    anager_id from request data
 
     if not all([title, author, price, quantity, manager_id]):
         return jsonify({'message': 'Missing required fields'}), 400

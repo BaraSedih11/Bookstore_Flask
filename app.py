@@ -1,18 +1,21 @@
-from flask import Flask, request, jsonify
-import os
+from flask import Flask
 from flask_sqlalchemy import SQLAlchemy
-from flask_marshmallow import Marshmallow
-from middleware import SimpleMiddleWare
-
-
+from .routes import inventory_manager_routes
 
 app = Flask(__name__)
-app.wsgi_app = SimpleMiddleWare(app.wsgi_app)
-basedir = os.path.abspath(os.path.dirname(__file__))
 
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(basedir, 'db.sqlite')
+# Configure database connection (replace 'your_database.db' with desired filename)
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///bookstore.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-# Initialize db
+
+# Initialize SQLAlchemy
 db = SQLAlchemy(app)
-# Initialize ma
-ma = Marshmallow(app)
+
+
+
+# Register routes blueprint
+app.register_blueprint(inventory_manager_routes)
+
+if __name__ == '__main__':
+    db.create_all()  # Create database tables if they don't exist
+    app.run(debug=True)

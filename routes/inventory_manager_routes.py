@@ -1,11 +1,16 @@
 from flask import Blueprint, request, jsonify
-from models import InventoryManager, Book
-from . import db
 from schemas import inventory_manager_schema
+# from models.book import Book
+from . import db
+from models import inventory_manager
 
 
 
 inventory_manager_bp = Blueprint('inventory_manager_bp', __name__, url_prefix='/inventory_managers')
+
+inventory_schema = inventory_manager_schema.InventoryManager()
+inventories_schema = inventory_manager_schema.InventoryManager(many=True)
+
 
 @inventory_manager_bp.route('/', methods=['POST'])
 def create_inventory_manager():
@@ -13,14 +18,20 @@ def create_inventory_manager():
     name = data.get('name')
     location = data.get('location')
 
-    if not name:
-        return jsonify({'message': 'Name is required'}), 400
 
-    new_inventory_manager = InventoryManager(name=name, location=location)
-    db.session.add(new_inventory_manager)
+    if not name or not location:    
+        return jsonify({'message': 'Name and Location are required'}), 400
+
+    # new_inventory_manager = InventoryManager(name=name, location=location)
+      
+    validated_data = inventory_schema.load(data)
+    manager = inventory_manager.InventoryManager(**validated_data)
+
+    print("testtttttttttttttttttttttttttt")
+    db.session.add(manager)
     db.session.commit()
 
-    return inventory_manager_schema.jsonify(new_inventory_manager), 201
+    return jsonify(inventory_schema.dump(manager)), 201
 
 @inventory_manager_bp.route('/', methods=['GET'])
 def list_inventory_managers():
