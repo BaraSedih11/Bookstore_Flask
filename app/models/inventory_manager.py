@@ -1,18 +1,17 @@
-from flask_sqlalchemy import Model, Column, String, Integer
 from sqlalchemy.orm import relationship
 from sqlalchemy.ext.declarative import declarative_base
+from app import db, ma
 
-Base = declarative_base()
 
-class InventoryManager(Model):
+
+class InventoryManager(db.Model):
     __tablename__ = 'inventory_manager'
 
-    id = Column(Integer, primary_key=True)
-    name = Column(String)   
-    location = Column(String)
-    # books = relationship('Book', back_populates='manager')
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String)   
+    book_id = db.Column(db.Integer, db.ForeignKey('book.id'), nullable=False)
+    book = db.relationship('Book', backref=db.backref('inventory', lazy=True))
 
-    def __init__(self, name, location):
-        self.name = name
-        self.location = location
+    def __repr__(self):
+        return f'<InventoryManager Book ID: {self.book_id}, Quantity: {self.quantity}>'
 

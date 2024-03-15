@@ -1,8 +1,12 @@
 from flask import Blueprint, request, jsonify
 from app import db, ma
 from ..models.book import Book
+from ..schemas.book_schema import BookSchema
 
 book_blueprint = Blueprint('book_bp', __name__, url_prefix='/books')
+book_schema = BookSchema()
+books_schema = BookSchema(many=True)
+
 
 @book_blueprint.route('/')
 def index():

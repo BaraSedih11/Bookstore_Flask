@@ -4,9 +4,8 @@ from sqlalchemy.ext.declarative import declarative_base
 from app import db, ma
 
 
-Base = declarative_base()
 
-class Book(Base):
+class Book(db.Model):
     __tablename__ = 'books'
 
     id = Column(Integer, primary_key=True)

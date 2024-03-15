@@ -1,67 +1,50 @@
 from flask import Blueprint, request, jsonify
-from schemas import inventory_manager_schema
-# from models.book import Book
-from . import db
-from models import inventory_manager
+from app.models.inventory_manager import InventoryManager
+from app import db
+from app.schemas.inventory_manager_schema import InventoryManagerSchema
 
+inventory_blueprint = Blueprint('inventory', __name__)
+inventory_schema = InventoryManagerSchema()
+inventories_schema = InventoryManagerSchema(many=True)
 
-
-inventory_manager_bp = Blueprint('inventory_manager_bp', __name__, url_prefix='/inventory_managers')
-
-inventory_schema = inventory_manager_schema.InventoryManager()
-inventories_schema = inventory_manager_schema.InventoryManager(many=True)
-
-
-@inventory_manager_bp.route('/', methods=['POST'])
-def create_inventory_manager():
-    data = request.json
-    name = data.get('name')
-    location = data.get('location')
-
-
-    if not name or not location:    
-        return jsonify({'message': 'Name and Location are required'}), 400
-
-    # new_inventory_manager = InventoryManager(name=name, location=location)
-      
-    validated_data = inventory_schema.load(data)
-    manager = inventory_manager.InventoryManager(**validated_data)
-
-    print("testtttttttttttttttttttttttttt")
-    db.session.add(manager)
-    db.session.commit()
-
-    return jsonify(inventory_schema.dump(manager)), 201
-
-@inventory_manager_bp.route('/', methods=['GET'])
-def list_inventory_managers():
-    inventory_managers = InventoryManager.query.all()
-    result = inventory_manager_schema.dump(inventory_managers)
+# Route to get all inventory managers
+@inventory_blueprint.route('/inventory', methods=['GET'])
+def get_inventory_managers():
+    all_inventory_managers = InventoryManager.query.all()
+    result = inventories_schema.dump(all_inventory_managers)
     return jsonify(result)
 
-@inventory_manager_bp.route('/<int:inventory_manager_id>', methods=['GET'])
-def get_inventory_manager(inventory_manager_id):
-    inventory_manager = InventoryManager.query.get_or_404(inventory_manager_id)
-    return inventory_manager_schema.jsonify(inventory_manager)
+# Route to add a new inventory manager
+@inventory_blueprint.route('/inventory', methods=['POST'])
+def add_inventory_manager():
+    name = request.json['name']
+    book_id = request.json['book_id']
 
-@inventory_manager_bp.route('/<int:inventory_manager_id>/books', methods=['GET'])
-def get_inventory_manager_books(inventory_manager_id):
-    inventory_manager = InventoryManager.query.get_or_404(inventory_manager_id)
-    books = inventory_manager.books
-    return jsonify({'books': [book.serialize() for book in books]})
-
-@inventory_manager_bp.route('/<int:inventory_manager_id>', methods=['PUT'])
-def update_inventory_manager(inventory_manager_id):
-    inventory_manager = InventoryManager.query.get_or_404(inventory_manager_id)
-    data = request.json
-    for key, value in data.items():
-        setattr(inventory_manager, key, value)
+    new_inventory_manager = InventoryManager(name=name, book_id=book_id)
+    db.session.add(new_inventory_manager)
     db.session.commit()
-    return jsonify({'message': 'Inventory manager updated successfully'})
 
-@inventory_manager_bp.route('/<int:inventory_manager_id>', methods=['DELETE'])
-def delete_inventory_manager(inventory_manager_id):
-    inventory_manager = InventoryManager.query.get_or_404(inventory_manager_id)
+    return inventory_schema.jsonify(new_inventory_manager)
+
+# Route to update an existing inventory manager
+@inventory_blueprint.route('/inventory/<int:id>', methods=['PUT'])
+def update_inventory_manager(id):
+    inventory_manager = InventoryManager.query.get(id)
+    name = request.json['name']
+    book_id = request.json['book_id']
+
+    inventory_manager.name = name
+    inventory_manager.book_id = book_id
+
+    db.session.commit()
+
+    return inventory_schema.jsonify(inventory_manager)
+
+# Route to delete an existing inventory manager
+@inventory_blueprint.route('/inventory/<int:id>', methods=['DELETE'])
+def delete_inventory_manager(id):
+    inventory_manager = InventoryManager.query.get(id)
     db.session.delete(inventory_manager)
     db.session.commit()
-    return jsonify({'message': 'Inventory manager deleted successfully'})
+
+    return inventory_schema.jsonify(inventory_manager)
