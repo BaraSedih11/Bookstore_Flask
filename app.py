@@ -1,3 +1,4 @@
+from datetime import datetime
 from flask import Flask, jsonify, request, session
 from flask_sqlalchemy import SQLAlchemy
 from flask_marshmallow import Marshmallow
@@ -6,7 +7,8 @@ import os
 from marshmallow import Schema, fields
 from werkzeug.security import generate_password_hash
 # from flask_migrate import Migrate
-
+from sqlalchemy.orm import sessionmaker
+    
 
 # configuration 
 app = Flask(__name__)
@@ -81,6 +83,52 @@ class User(db.Model):
     def __repr__(self):
         return f"<User {self.username}>"
 
+payment_cart_books = db.Table('payment_cart_books',
+    db.Column('payment_cart_id', db.Integer, db.ForeignKey('payment_cart.id'), primary_key=True),
+    db.Column('book_id', db.Integer, db.ForeignKey('books.id'), primary_key=True),
+    db.Column('quantity', db.Integer)  
+)
+
+class PaymentCart(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    book_id = db.Column(db.Integer, db.ForeignKey('books.id'))
+    _total_price = db.Column(db.Float, nullable=False)
+
+    books = db.relationship('Book', secondary='payment_cart_books', backref='payment_carts')
+
+    def __repr__(self):
+        return f'<PaymentCart user_id: {self.user_id}, total_price: {self.total_price}>'
+    
+    def __init__(self, user_id, book_id, total_price=0):
+        self.user_id = user_id
+        self.book_id = book_id
+        self._total_price = total_price
+
+    @property
+    def total_price(self):
+        """
+        Calculate the total price of the payment cart based on the books in it.
+        """
+        total_price = 0
+        for item in self.books:
+            total_price += item.price * item.quantity
+        return total_price
+
+    @total_price.setter
+    def total_price(self, value):
+        self._total_price = value
+
+class Order(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    book_id = db.Column(db.Integer, db.ForeignKey('books.id'), nullable=False)
+    quantity = db.Column(db.Integer, nullable=False)
+    total_price = db.Column(db.Float, nullable=False)
+    order_date = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+
+    def __repr__(self): 
+        return f"<Order {self.id}>"
 
 # schemas
 class BookSchema(ma.Schema):
@@ -98,6 +146,13 @@ class UserSchema(Schema):
     unknown = 'EXCLUDE'
     fields= ('id', 'username', 'email', 'password')
     
+class PaymentCartSchema(Schema):
+    model = PaymentCart
+    fields = ("id", "user_id", "book_id", "total_price")
+
+class OrderSchema(ma.Schema):
+    model = Order
+    fields = ('id', 'user_id', 'book_id', 'quantity', 'total_price', 'order_date')
 
 
 # app.register_blueprint(book_blueprint)
@@ -112,10 +167,12 @@ users_schema = UserSchema(many=True)
 inventory_schema = InventoryManagerSchema()
 inventories_schema = InventoryManagerSchema(many=True)
 
+shopping_cart = PaymentCartSchema()
 
-# with app.app_context():
+with app.app_context():
     # db.drop_all()
-    # db.create_all()
+    db.create_all()
+
     # manager1 = InventoryManager(name="inventory1", book_id=1, email="manager@gmail.com", password="123")
     # db.session.add(manager1)
     # db.session.commit()
@@ -330,6 +387,156 @@ def user_logout():
 
     session.pop('user_id', None)
     return jsonify({'message': 'Logout successful'}), 200
+
+
+# payment cart routes
+@app.route('/payment_carts', methods=['POST'])
+def create_payment_cart():
+    if 'user_id' not in session:
+        return jsonify({'error': 'Unauthorized'}), 401
+    
+    data = request.json
+
+    book = Book.query.get_or_404(data['book_id'])
+    # Serialize the book object into a dictionary
+    serialized_book = book_schema.dump(book)    
+
+    total_price = 0
+    price = 0
+    quantity = 0
+    for key, val in serialized_book.items():
+        if key == "price":
+            price = val
+        if key == "quantity":
+            quantity = val
+        
+    total_price += price * quantity
+
+
+    # Create the payment cart instance
+    payment_cart = PaymentCart(user_id=data['user_id'], book_id=data['book_id'], total_price=total_price)
+
+    # Save the payment cart to the database
+    db.session.add(payment_cart)
+    db.session.commit()
+
+    return jsonify({'message': 'Payment cart created successfully', 'payment_cart_id': payment_cart.id}), 201
+
+@app.route('/payment_carts/<int:payment_cart_id>/add_book', methods=['POST'])
+def add_book_to_payment_cart(payment_cart_id):
+    if 'user_id' not in session:
+        return jsonify({'error': 'Unauthorized'}), 401
+   
+    data = request.json
+    book_id = data.get('book_id')
+    quantity = data.get('quantity')
+
+    if not book_id or not quantity:
+        return jsonify({'error': 'Book ID and quantity are required'}), 400
+
+    payment_cart = PaymentCart.query.get_or_404(payment_cart_id)    
+    book = Book.query.get_or_404(book_id)
+
+    # Check if the book is available
+    if book.quantity < quantity:
+        return jsonify({'error': 'Not enough stock for this book'}), 400
+
+    # Add the book to the payment cart with the specified quantity
+    payment_cart.books.append(book)
+    db.session.commit()
+
+    return jsonify({'message': 'Book added to payment cart successfully'}), 200
+
+
+@app.route('/payment_carts/<int:payment_cart_id>/remove_book', methods=['POST'])
+def remove_book_from_payment_cart(payment_cart_id):
+    data = request.json
+    book_id = data.get('book_id')
+
+    if not book_id:
+        return jsonify({'error': 'Book ID is required'}), 400
+
+    payment_cart = PaymentCart.query.get_or_404(payment_cart_id)
+    book = Book.query.get_or_404(book_id)
+
+    # Check if the book is in the payment cart
+    if book not in payment_cart.books:
+        return jsonify({'error': 'Book not found in the payment cart'}), 400
+
+    # Remove the book from the payment cart
+    payment_cart.books.remove(book)
+    db.session.commit()
+
+    return jsonify({'message': 'Book removed from payment cart successfully'}), 200
+
+
+# order routes
+@app.route('/orders/place', methods=['POST'])
+def place_order():
+    if 'user_id' not in session:
+        return jsonify({'error': 'Unauthorized'}), 401
+    
+    # Get data from the request
+    data = request.json
+    user_id = session['user_id']
+    book_id = data.get('book_id')
+    quantity = data.get('quantity')
+
+    if not book_id or not quantity:
+        return jsonify({'error': 'Book ID and quantity are required'}), 400
+
+    # Check if the book is available in inventory
+    book = Book.query.get_or_404(book_id)
+    if book.quantity < quantity:
+        return jsonify({'error': 'Not enough stock for this book'}), 400
+
+    # Calculate total price
+    total_price = book.price * quantity
+
+    # Create a new order
+    new_order = Order(user_id=user_id, book_id=book_id, quantity=quantity, total_price=total_price)
+
+    # Add the order to the database
+    db.session.add(new_order)
+    db.session.commit()
+
+    # Update inventory
+    book.quantity -= quantity
+    db.session.commit()
+
+    return jsonify({'message': 'Order placed successfully'}), 201
+
+@app.route('/orders', methods=['GET'])
+def view_orders():
+    if 'user_id' not in session:
+        return jsonify({'error': 'Unauthorized'}), 401
+
+    user_id = session['user_id']
+    orders = Order.query.filter_by(user_id=user_id).all()
+
+    order_list = []
+    for order in orders:
+        order_list.append({
+            'id': order.id,
+            'book_id': order.book_id,
+            'quantity': order.quantity,
+            'total_price': order.total_price,
+            'order_date': order.order_date.strftime('%Y-%m-%d %H:%M:%S')
+        })
+
+    return jsonify(order_list), 200
+
+# Generate Report Route
+@app.route('/orders/report', methods=['GET'])
+def generate_report():
+    if 'user_id' not in session:
+        return jsonify({'error': 'Unauthorized'}), 401
+
+    user_id = session['user_id']
+    total_orders = Order.query.filter_by(user_id=user_id).count()
+    total_sales = db.session.query(db.func.sum(Order.total_price)).filter_by(user_id=user_id).scalar()
+
+    return jsonify({'total_orders': total_orders, 'total_sales': total_sales}), 200
 
 
 if __name__ == '__main__':
